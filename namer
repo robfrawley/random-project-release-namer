@@ -1,0 +1,146 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+require 'engtagger'
+require 'open-uri'
+require 'nokogiri'
+
+class ReleaseNamer
+
+  def initialize(sites, format)
+    @format  = format
+    @types   = format.split('/')
+    @text    = String.new
+    @tagger = EngTagger.new
+
+    for site in sites
+      dom    = Nokogiri.HTML(open(site))
+      dom.css('head,script,style,code').map { |l| l.unlink }
+      @text += dom.text
+    end
+
+    @tags = @tagger.add_tags(@text)
+  end
+
+  def suggestion
+    suggestion  = String.new
+
+    @types.each do |_t|
+      suggestion += (s = get_word_for_type(_t).dup) == nil ? 'error' : s
+      suggestion += '-'
+    end
+
+    suggestion[0, (suggestion.length - 1)]
+  end
+
+  private
+
+  def get_word_for_type(type)
+
+    words = self.send("get_type_results_#{type}")
+
+    cleanup_word(words.sample.dup)
+
+  end
+
+  def get_type_results_NNP
+    @tagger.get_proper_nouns(@tags).keys
+  end
+
+  def get_type_results_NN
+    @tagger.get_nouns(@tags).keys
+  end
+
+  def get_type_results_VBD
+    @tagger.get_past_tense_verbs(@tags).keys
+  end
+
+  def get_type_results_JJ
+    @tagger.get_adjectives(@tags).keys
+  end
+
+  def method_missing(m, *args, &block)
+    type = m.to_s.split('_').last
+    puts "The word type #{type} is not yet supported."
+    exit 1
+  end
+
+  def cleanup_word(w)
+    w.downcase!
+    w.gsub!(/[\.,:;!\?=\\`\{\}\[\]\+\-\(\)" ]/, '')
+    w
+  end
+
+end
+
+class CLIArgs
+
+  def sites
+
+    argument_offset  = 0
+    argument_offset += @repeater_defined ? 1 : 0
+    argument_offset += @format_defined ? 1 : 0
+
+    sites = Array.new
+
+    while ARGV[argument_offset]
+      sites << ARGV[argument_offset]
+      argument_offset += 1
+    end
+
+    return false if sites.length == 0
+
+    sites
+
+  end
+
+  def format
+
+    arg = ARGV.find { |x| x.match(/format/) }
+
+    if arg.nil?
+      @format_defined = false
+    else
+      @format_defined = true
+      arg = arg.split(/=/).last
+    end
+
+    arg
+
+  end
+
+  def repeater
+  
+    arg = ARGV.find { |x| x.match(/suggestions/) }
+  
+    if arg.nil?
+      @repeater_defined = false
+    else
+      @repeater_defined = true
+      arg = arg.split(/=/).last.to_i
+    end
+
+    arg
+  
+  end
+
+end
+
+def main
+
+  args = CLIArgs.new
+
+  do_count  = args.repeater || 10
+  format    = args.format   || 'VBD/JJ/NNP'
+  sites     = args.sites    || Array.new.push('http://en.wikipedia.org/wiki/Special:Random', 'http://en.wikipedia.org/wiki/Special:Random', 'http://en.wikipedia.org/wiki/Special:Random', 'http://en.wikipedia.org/wiki/Special:Random', 'http://en.wikipedia.org/wiki/Special:Random')
+
+  namer = ReleaseNamer.new(sites, format)
+
+  do_count.times do |_x|
+    puts namer.suggestion
+  end
+
+end
+
+main
+
+## EOF
